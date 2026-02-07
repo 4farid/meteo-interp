@@ -1,6 +1,8 @@
 from datetime import datetime
 from typing import Tuple, Union
 
+import polars as pl
+from polars import col
 from wetterdienst.provider.dwd.observation import DwdObservationRequest
 
 DateLike = Union[str, datetime]
@@ -89,5 +91,10 @@ def dwd_daily_met_distance_plus_solar_rank(
 
     if drop_nulls:
         values_df = values_df.drop_nulls()
+
+    # Round all numeric columns to 2 decimal places
+    values_df = values_df.with_columns(
+        [col(c).round(2) for c in values_df.columns if values_df[c].dtype in [pl.Float32, pl.Float64]]
+    )
 
     return stations_df, values_df
