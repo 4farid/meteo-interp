@@ -10,6 +10,79 @@ Meteorological data interpolation tool for SWAT/SWAT+ hydrological models. Fetch
 - **Output Formats**: SWAT and SWAT+ climate file formats
 - **Parameters**: Temperature (max/min), precipitation, humidity, wind speed, solar radiation
 
+## Workflow
+
+```mermaid
+---
+config:
+  theme: default
+  look: classic
+  layout: dagre
+---
+flowchart TB
+ subgraph Input["📁 Input Files"]
+        A1["watershed.xlsx<br>Subbasin locations"]
+        A2["interpolation_parameters.xlsx<br>Settings &amp; dates"]
+        A3["richter_parameters.xlsx<br>Correction coefficients"]
+  end
+ subgraph Loop["🔁 For Each Subbasin"]
+        G{"Apply Richter<br>Correction?"}
+        F["Fetch meteorological values<br>precipitation, temp, humidity,<br>wind, solar radiation"]
+        H["Richter 1995 Correction<br>Correct precipitation<br>based on temperature"]
+        I["Skip correction"]
+        J{"Data Format?"}
+        K1["Parse long format<br>parameter column"]
+        K2["Parse wide format<br>parameter columns"]
+        L["IDW Interpolation<br>for each parameter &amp; date"]
+        M["Store interpolated<br>values in memory"]
+  end
+ subgraph SWAT["📤 Legacy SWAT Files"]
+        P1["tmp###.txt<br>Temperature"]
+        O1["Legacy SWAT Output"]
+        P2["pcp###.txt<br>Precipitation"]
+        P3["rh###.txt<br>Humidity"]
+        P4["wind###.txt<br>Wind Speed"]
+        P5["solar###.txt<br>Solar Radiation"]
+        P6["Climate list files<br>tmp.txt, pcp.txt, etc."]
+  end
+ subgraph SWATPLUS["📤 SWAT+ Files"]
+        Q1["tmp###.tmp<br>Temperature"]
+        O2["SWAT+ Output"]
+        Q2["pcp###.pcp<br>Precipitation"]
+        Q3["rh###.hmd<br>Humidity"]
+        Q4["wind###.wnd<br>Wind Speed"]
+        Q5["solar###.slr<br>Solar Radiation"]
+        Q6["Climate list files<br>tmp.cli, pcp.cli, etc."]
+  end
+    A1 --> B{"Data Source?"}
+    A2 --> B
+    A3 --> B
+    B -- "is_dwd = 1" --> C1["DWD API<br>wetterdienst"]
+    B -- "is_dwd = 0" --> C2["Custom xlsx<br>stations.xlsx + values.xlsx"]
+    C1 --> D1["Fetch KL stations<br>by distance"] & D2["Fetch Solar stations<br>by rank"]
+    D1 --> E1["Combine stations"]
+    D2 --> E1
+    E1 --> F
+    C2 --> E2["Load custom station data"]
+    E2 --> E3["Calculate distances<br>using Haversine formula"]
+    E3 --> F
+    F --> G
+    G -- "apply_richter = 1" --> H
+    G -- "apply_richter = 0" --> I
+    H --> J
+    I --> J
+    J -- Long format --> K1
+    J -- Wide format --> K2
+    K1 --> L
+    K2 --> L
+    L --> M
+    M --> N{"Output Format?"}
+    N -- "swatplus = 0" --> O1
+    N -- "swatplus = 1" --> O2
+    O1 --> P1 & P2 & P3 & P4 & P5 & P6
+    O2 --> Q1 & Q2 & Q3 & Q4 & Q5 & Q6
+```
+
 ## Installation
 
 ```bash
