@@ -87,7 +87,7 @@ flowchart TB
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/meteo-interp.git
+git clone https://github.com/4farid/meteo-interp.git
 cd meteo-interp
 
 # Install dependencies
