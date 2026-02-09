@@ -52,7 +52,7 @@ def write_swat_temperature(
 
     Output format:
     - first line: start date YYYYMMDD
-    - subsequent lines: "max,min,mean" (comma-separated, no spaces)
+    - subsequent lines: "max,min" (comma-separated, no spaces)
     """
     out_dir = Path(output_folder)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -65,7 +65,6 @@ def write_swat_temperature(
 
     max_col = _first_available_column(df, ("temperature_air_max_2m", "max_Temperature", "Max_Temperature", "tmax", "temperature_max"))
     min_col = _first_available_column(df, ("temperature_air_min_2m", "min_Temperature", "Min_Temperature", "tmin", "temperature_min"))
-    mean_col = _first_available_column(df, ("temperature_air_mean_2m", "mean_Temperature", "Mean_Temperature", "tmean", "temperature_mean"))
 
     file_name = f"tmp{int(subbasin_id):03d}.txt"
     out_path = out_dir / file_name
@@ -75,12 +74,11 @@ def write_swat_temperature(
         d0 = pd.to_datetime(d).normalize()
         mx = _get_for_date(df, d0, max_col)
         mn = _get_for_date(df, d0, min_col)
-        mean = _get_for_date(df, d0, mean_col)
 
         def fmt(x):
             return "" if x is None else "{:.2f}".format(x)
 
-        lines.append(f"{fmt(mx)},{fmt(mn)},{fmt(mean)}")
+        lines.append(f"{fmt(mx)},{fmt(mn)}")
 
     out_path.write_text("\n".join(lines))
     return out_path
@@ -160,8 +158,12 @@ def write_swatplus_temperature(
     out_dir = Path(output_folder)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    dates = pd.to_datetime(interpolation_dates)
-    df = _prepare_df_index_by_date(interpolated_data_temp)
+    # Prepare DataFrame with date, year, yday, max, min
+    df = interpolated_data_temp.copy()
+    df['date'] = pd.to_datetime(df['date'])
+    df = df.sort_values('date')
+    df['year'] = df['date'].dt.year
+    df['yday'] = df['date'].dt.dayofyear
 
     max_col = _first_available_column(df, ("temperature_air_max_2m", "max_Temperature", "Max_Temperature", "tmax", "temperature_max"))
     min_col = _first_available_column(df, ("temperature_air_min_2m", "min_Temperature", "Min_Temperature", "tmin", "temperature_min"))
@@ -172,18 +174,15 @@ def write_swatplus_temperature(
     with out_path.open("w", newline="") as fh:
         fh.write(f"{file_name}\n")
         fh.write("\t".join(["nbyr", "tstep", "lat", "lon", "elev"]) + "\n")
-        nbyr = len(pd.Index(dates.year).unique())
+        nbyr = df['year'].nunique()
         fh.write("\t".join([str(nbyr), "0", f"{round(lat, 2):.2f}", f"{round(lon, 2):.2f}", f"{round(elev, 2):.2f}"]) + "\n")
 
-        for d in dates:
-            d0 = pd.to_datetime(d).normalize()
-            year = d0.year
-            yday = int(d0.dayofyear)
-            mx = _get_for_date(df, d0, max_col)
-            mn = _get_for_date(df, d0, min_col)
-            mx_s = "" if mx is None else "{:.2f}".format(mx)
-            mn_s = "" if mn is None else "{:.2f}".format(mn)
-            fh.write("\t".join([str(year), str(yday), mx_s, mn_s]) + "\n")
+        for _, row in df.iterrows():
+            mx = row[max_col] if max_col and max_col in df.columns else None
+            mn = row[min_col] if min_col and min_col in df.columns else None
+            mx_s = "" if pd.isna(mx) else f"{mx:.2f}"
+            mn_s = "" if pd.isna(mn) else f"{mn:.2f}"
+            fh.write("\t".join([str(row['year']), str(row['yday']), mx_s, mn_s]) + "\n")
 
     return out_path
 
@@ -215,8 +214,12 @@ def write_swatplus_other(
     out_dir = Path(output_folder)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    dates = pd.to_datetime(interpolation_dates)
-    df = _prepare_df_index_by_date(interpolated_data)
+    # Prepare DataFrame with date, year, yday, value
+    df = interpolated_data.copy()
+    df['date'] = pd.to_datetime(df['date'])
+    df = df.sort_values('date')
+    df['year'] = df['date'].dt.year
+    df['yday'] = df['date'].dt.dayofyear
 
     ext_map = {
         "precipitation_height": ("pcp", "pcp"),
@@ -228,7 +231,6 @@ def write_swatplus_other(
         "radiation_global": ("solar", "slr"),
         "solar": ("solar", "slr"),
     }
-
     prefix, ext = ext_map.get(var_column, ("var", "tmp"))
     file_name = f"{prefix}{int(subbasin_id):03d}.{ext}"
     out_path = out_dir / file_name
@@ -236,18 +238,125 @@ def write_swatplus_other(
     with out_path.open("w", newline="") as fh:
         fh.write(f"{file_name}\n")
         fh.write("\t".join(["nbyr", "tstep", "lat", "lon", "elev"]) + "\n")
-        nbyr = len(pd.Index(dates.year).unique())
+        nbyr = df['year'].nunique()
         fh.write("\t".join([str(nbyr), "0", f"{round(lat, 2):.2f}", f"{round(lon, 2):.2f}", f"{round(elev, 2):.2f}"]) + "\n")
 
-        for d in dates:
-            d0 = pd.to_datetime(d).normalize()
-            year = d0.year
-            yday = int(d0.dayofyear)
-            v = _get_for_date(df, d0, var_column)
-            v_s = "" if v is None else "{:.2f}".format(v)
-            fh.write("\t".join([str(year), str(yday), v_s]) + "\n")
+        for _, row in df.iterrows():
+            v = row[var_column]
+            v_s = "" if pd.isna(v) else f"{v:.2f}"
+            fh.write("\t".join([str(row['year']), str(row['yday']), v_s]) + "\n")
 
     return out_path
+
+
+def write_swat_stations_metadata(
+    output_folder: str | Path,
+    stations_data: list[dict],
+) -> Path:
+    """Write SWAT stations metadata files.
+    
+    Creates metadata files for each variable type listing all subbasins.
+    
+    Parameters
+    ----------
+    output_folder : str | Path
+        Output directory for metadata files
+    stations_data : list[dict]
+        List of station dictionaries with keys:
+        - variable: variable type (e.g., 'temperature', 'precipitation')
+        - prefix: file prefix (e.g., 'tmp', 'pcp')
+        - subbasin_id : subbasin ID
+        - name : station name (e.g., 'tmp001')
+        - lat : latitude
+        - lon : longitude
+        - elev : elevation
+    """
+    out_dir = Path(output_folder)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Group by variable type
+    by_variable = {}
+    for station in stations_data:
+        var = station['variable']
+        if var not in by_variable:
+            by_variable[var] = []
+        by_variable[var].append(station)
+    
+    # Write one file per variable type
+    prefix_map = {
+        'temperature': 'tmp',
+        'precipitation_height': 'pcp',
+        'humidity': 'rh',
+        'wind_speed': 'wind',
+        'radiation_global': 'solar',
+    }
+    
+    paths = []
+    for var, stations in by_variable.items():
+        prefix = prefix_map.get(var, 'var')
+        file_name = f"{prefix}.txt"
+        out_path = out_dir / file_name
+        
+        lines = ["ID,NAME,LAT,LONG,ELEVATION"]
+        for station in sorted(stations, key=lambda x: x['subbasin_id']):
+            line = (
+                f"{station['subbasin_id']},"
+                f"{station['name']},"
+                f"{station['lat']},"
+                f"{station['lon']},"
+                f"{station['elev']}"
+            )
+            lines.append(line)
+        
+        out_path.write_text("\n".join(lines))
+        paths.append(out_path)
+    
+    return paths
+
+
+def write_swatplus_climate_files(
+    output_folder: str | Path,
+    subbasin_ids: list[int],
+) -> list[Path]:
+    """Write SWAT+ climate list files (.cli).
+    
+    Creates .cli files that list all station data files for each variable type.
+    
+    Parameters
+    ----------
+    output_folder : str | Path
+        Output directory for .cli files
+    subbasin_ids : list[int]
+        List of subbasin IDs to include in the climate files
+    
+    Returns
+    -------
+    list[Path]
+        List of created .cli file paths
+    """
+    out_dir = Path(output_folder)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Define climate file mappings
+    climate_files = {
+        'tmp.cli': [f'tmp{sid:03d}.tmp' for sid in sorted(subbasin_ids)],
+        'pcp.cli': [f'pcp{sid:03d}.pcp' for sid in sorted(subbasin_ids)],
+        'hmd.cli': [f'rh{sid:03d}.hmd' for sid in sorted(subbasin_ids)],
+        'wnd.cli': [f'wind{sid:03d}.wnd' for sid in sorted(subbasin_ids)],
+        'slr.cli': [f'solar{sid:03d}.slr' for sid in sorted(subbasin_ids)],
+    }
+    
+    paths = []
+    for cli_name, data_files in climate_files.items():
+        out_path = out_dir / cli_name
+        
+        lines = [cli_name]  # First line is the filename with .cli extension
+        lines.extend(data_files)
+        
+        out_path.write_text("\n".join(lines) + "\n")
+        paths.append(out_path)
+    
+    return paths
 
 
 __all__ = [
@@ -255,4 +364,6 @@ __all__ = [
     "write_swat_other",
     "write_swatplus_temperature",
     "write_swatplus_other",
+    "write_swat_stations_metadata",
+    "write_swatplus_climate_files",
 ]
