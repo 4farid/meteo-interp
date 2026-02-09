@@ -87,7 +87,7 @@ flowchart TB
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/meteo-interp.git
+git clone https://github.com/4farid/meteo-interp.git
 cd meteo-interp
 
 # Install dependencies
@@ -189,7 +189,7 @@ python main.py
 
 The script will:
 1. Read configuration from xlsx files
-2. Fetch weather data (DWD or custom)
+2. Fetch weather data (DWD or custom). Solar radiation does not use the distance method; it takes 3 nearest stations
 3. Calculate distances from each subbasin to nearby stations
 4. Apply IDW interpolation for each parameter
 5. Optionally apply Richter precipitation correction
