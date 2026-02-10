@@ -36,9 +36,9 @@ flowchart TB
         L["IDW Interpolation<br>for each parameter &amp; date"]
         M["Store interpolated<br>values in memory"]
   end
- subgraph SWAT["📤 Legacy SWAT Files"]
+ subgraph SWAT["📤 SWAT Files"]
         P1["tmp###.txt<br>Temperature"]
-        O1["Legacy SWAT Output"]
+        O1["SWAT Output"]
         P2["pcp###.txt<br>Precipitation"]
         P3["rh###.txt<br>Humidity"]
         P4["wind###.txt<br>Wind Speed"]
