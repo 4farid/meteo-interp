@@ -125,7 +125,7 @@ Defines the subbasin centroids for interpolation.
 | Subbasin | Subbasin ID |
 | Lat | Latitude (decimal degrees) |
 | Long | Longitude (decimal degrees) |
-| Elevation | Elevation (m) - optional |
+| Elevation | Elevation (m) |
 
 ### interpolation_parameters.xlsx
 
