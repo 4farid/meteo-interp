@@ -1,6 +1,7 @@
 from pathlib import Path
 import pandas as pd
 import numpy as np
+import time
 from math import radians, sin, cos, sqrt, atan2
 
 from src.dwd import dwd_daily_met_distance_plus_solar_rank
@@ -58,6 +59,8 @@ apply_richter = int(interpolation_pars['apply_richter'].iloc[0]) if 'apply_richt
 # Check if data source is DWD (1 = DWD, 0 = custom xlsx files)
 is_dwd = int(interpolation_pars['is_dwd'].iloc[0]) if 'is_dwd' in interpolation_pars.columns else 1
 
+# Start timing
+start_time = time.time()
 
 for index, row in watershed.iterrows():
     subbasin = row["Subbasin"]
@@ -296,7 +299,8 @@ for index, row in watershed.iterrows():
 
     # Store parameter DataFrames separately for this subbasin (kept in memory)
     all_results[subbasin] = parameter_dfs
-    print(f"Stored interpolated parameters for subbasin '{subbasin}' in all_results")
+    elapsed_time = time.time() - start_time
+    print(f"Stored interpolated parameters for subbasin '{subbasin}' in all_results. Duration: {elapsed_time:.2f} seconds")
 
 
 # ---- Write SWAT Output Files ----
