@@ -125,7 +125,7 @@ Defines the subbasin centroids for interpolation.
 | Subbasin | Subbasin ID |
 | Lat | Latitude (decimal degrees) |
 | Long | Longitude (decimal degrees) |
-| Elevation | Elevation (m) - optional |
+| Elevation | Elevation (m) |
 
 ### interpolation_parameters.xlsx
 
@@ -177,7 +177,7 @@ Custom weather data in wide format.
 | precipitation_height | Daily precipitation (mm) |
 | temperature_air_max_2m | Daily max temperature (°C) |
 | temperature_air_min_2m | Daily min temperature (°C) |
-| humidity | Relative humidity (%) |
+| humidity | Relative humidity (decimal) |
 | wind_speed | Wind speed (m/s) |
 | radiation_global | Solar radiation (MJ/m²) |
 
@@ -207,7 +207,7 @@ The script will:
 
 ### SWAT+ (swatplus=1)
 - `pcp001.pcp`, `pcp002.pcp`, ... - Precipitation
-- `tmp001.tmp`, `tmp002.tmp`, ... - Temperature
+- `tmp001.tmp`, `tmp002.tmp`, ... - Temperature (max, min)
 - `hmd001.hmd`, `hmd002.hmd`, ... - Humidity
 - `wnd001.wnd`, `wnd002.wnd`, ... - Wind
 - `slr001.slr`, `slr002.slr`, ... - Solar radiation
