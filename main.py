@@ -5,7 +5,7 @@ import time
 from math import radians, sin, cos, sqrt, atan2
 
 from src.dwd import dwd_daily_met_distance_plus_solar_rank
-from src.idw import idw_from_distances
+from src.idw import idw_from_dataframe_group
 from src.richter import apply_richter_correction
 from src.write_swat_output import (
     write_swat_temperature,
@@ -211,6 +211,9 @@ for index, row in watershed.iterrows():
 
     parameter_dfs = {}
 
+    # Pre-compute station distance lookup (O(1) instead of O(n) per lookup)
+    station_distance_map = stations_pd.set_index('station_id')['distance'].to_dict()
+
     if is_long:
         station_col, date_col, param_col, value_col = _infer_value_columns(values_pd)
         if not all([station_col, date_col, param_col, value_col]):
@@ -219,71 +222,52 @@ for index, row in watershed.iterrows():
         # ensure datetime (handle mixed tz-aware/naive values)
         values_pd[date_col] = pd.to_datetime(values_pd[date_col], utc=True)
 
-        params = values_pd[param_col].unique()
+        # Pre-merge distances into values DataFrame (vectorized)
+        values_pd['_distance'] = values_pd[station_col].map(station_distance_map)
+        
+        # Filter out rows with missing distance or value
+        valid_mask = values_pd['_distance'].notna() & values_pd[value_col].notna()
+        values_filtered = values_pd[valid_mask].copy()
+
+        # Vectorized groupby IDW interpolation
+        params = values_filtered[param_col].unique()
         for param in params:
-            df_rows = []
-            dates = sorted(values_pd[date_col].unique())
-            for d in dates:
-                subset = values_pd[(values_pd[date_col] == d) & (values_pd[param_col] == param)]
-                # map station -> distance
-                distances = []
-                vals = []
-                for _, r in subset.iterrows():
-                    sid = r[station_col]
-                    station_distance = stations_pd[stations_pd['station_id'] == sid]['distance'].values
-                    if len(station_distance) == 0:
-                        continue
-                    v = r[value_col]
-                    if pd.isna(v):
-                        continue
-                    distances.append(float(station_distance[0]))
-                    vals.append(float(v))
-
-                if len(distances) > 0 and len(vals) > 0:
-                    try:
-                        val = idw_from_distances(distances, vals, power=2.0)
-                    except Exception:
-                        val = -99
-                else:
-                    val = -99
-                df_rows.append({'date': d, 'value': val})
-
-            parameter_dfs[param] = pd.DataFrame(df_rows)
-            print(f"Subbasin {subbasin}, Parameter {param}: {len(parameter_dfs[param])} values interpolated")
+            param_data = values_filtered[values_filtered[param_col] == param]
+            
+            # Group by date and compute IDW for each group
+            result = param_data.groupby(date_col).apply(
+                lambda g: idw_from_dataframe_group(g, '_distance', value_col),
+                include_groups=False
+            ).reset_index()
+            result.columns = ['date', 'value']
+            
+            parameter_dfs[param] = result
+            print(f"Subbasin {subbasin}, Parameter {param}: {len(result)} values interpolated")
     else:
         # wide format: parameter columns are all except known metadata
         exclude_cols = {'station_id', 'latitude', 'longitude', 'distance', 'date', 'start_date', 'end_date'}
         parameter_cols = [col for col in values_pd.columns if col not in exclude_cols]
 
+        # Pre-merge distances into values DataFrame (vectorized)
+        values_pd['_distance'] = values_pd['station_id'].map(station_distance_map)
+        
+        # Filter out rows with missing distance
+        valid_mask = values_pd['_distance'].notna()
+        values_filtered = values_pd[valid_mask].copy()
+
         for param in parameter_cols:
-            df_rows = []
-            dates = sorted(values_pd['date'].unique())
-            for d in dates:
-                date_data = values_pd[values_pd['date'] == d]
-                distances = []
-                vals = []
-                for _, r in date_data.iterrows():
-                    sid = r.get('station_id')
-                    station_distance = stations_pd[stations_pd['station_id'] == sid]['distance'].values
-                    if len(station_distance) == 0:
-                        continue
-                    v = r.get(param)
-                    if pd.isna(v):
-                        continue
-                    distances.append(float(station_distance[0]))
-                    vals.append(float(v))
-
-                if len(distances) > 0 and len(vals) > 0:
-                    try:
-                        val = idw_from_distances(distances, vals, power=2.0)
-                    except Exception:
-                        val = -99
-                else:
-                    val = -99
-                df_rows.append({'date': d, 'value': val})
-
-            parameter_dfs[param] = pd.DataFrame(df_rows)
-            print(f"Subbasin {subbasin}, Parameter {param}: {len(parameter_dfs[param])} values interpolated")
+            # Filter rows where this parameter has valid values
+            param_valid = values_filtered[values_filtered[param].notna()].copy()
+            
+            # Group by date and compute IDW for each group
+            result = param_valid.groupby('date').apply(
+                lambda g: idw_from_dataframe_group(g, '_distance', param),
+                include_groups=False
+            ).reset_index()
+            result.columns = ['date', 'value']
+            
+            parameter_dfs[param] = result
+            print(f"Subbasin {subbasin}, Parameter {param}: {len(result)} values interpolated")
 
     # Store parameter DataFrames separately for this subbasin (kept in memory)
     all_results[subbasin] = parameter_dfs
