@@ -5,7 +5,16 @@ import time
 from math import radians, sin, cos, sqrt, atan2
 
 from src.dwd import dwd_daily_met_distance_plus_solar_rank
-
+from src.idw import idw_from_distances
+from src.richter import apply_richter_correction
+from src.write_swat_output import (
+    write_swat_temperature,
+    write_swat_other,
+    write_swatplus_temperature,
+    write_swatplus_other,
+    write_swat_stations_metadata,
+    write_swatplus_climate_files,
+)
 
 def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """
@@ -24,16 +33,7 @@ def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> fl
     c = 2 * atan2(sqrt(a), sqrt(1 - a))
     
     return R * c
-from src.idw import idw_from_distances
-from src.richter import apply_richter_correction
-from src.write_swat_output import (
-    write_swat_temperature,
-    write_swat_other,
-    write_swatplus_temperature,
-    write_swatplus_other,
-    write_swat_stations_metadata,
-    write_swatplus_climate_files,
-)
+
 
 # Set the paths based on the location of this script
 BASE_DIR = Path(__file__).resolve().parent
@@ -166,55 +166,43 @@ for index, row in watershed.iterrows():
             temp_data = values_pd[values_pd[param_col] == 'temperature_air_mean_2m'].copy() if 'temperature_air_mean_2m' in values_pd[param_col].values else None
             
             if pcp_data is not None and temp_data is not None:
-                # Merge precipitation with temperature by date and station
-                merged = pcp_data.merge(
-                    temp_data[[station_col, date_col, value_col]],
-                    on=[station_col, date_col],
-                    suffixes=('_pcp', '_temp')
-                )
-                
                 try:
-                    corrected_values = []
-                    for _, row in merged.iterrows():
-                        pcp = float(row[f'{value_col}_pcp'])
-                        temp = float(row[f'{value_col}_temp'])
+                    # Apply correction for each station separately
+                    corrected_dfs = []
+                    for station_id in pcp_data[station_col].unique():
+                        station_pcp = pcp_data[pcp_data[station_col] == station_id].copy()
+                        station_temp = temp_data[temp_data[station_col] == station_id].copy()
                         
-                        if pd.isna(pcp) or pcp == -99 or pd.isna(temp):
-                            corrected_values.append(pcp)
+                        if station_pcp.empty or station_temp.empty:
+                            corrected_dfs.append(station_pcp)
                             continue
                         
-                        # Apply Richter correction
-                        if temp <= richter_pars['T_Snow'].iloc[0]:
-                            dchange = richter_pars['b_Snow'].iloc[0] * (pcp ** richter_pars['epsilon_Snow'].iloc[0])
-                        elif temp <= richter_pars['T_Mix'].iloc[0]:
-                            dchange = richter_pars['b_Mix'].iloc[0] * (pcp ** richter_pars['epsilon_Mix'].iloc[0])
-                        else:
-                            month = row[date_col].month
-                            if month >= richter_pars['Summer_month_Start'].iloc[0] or month < richter_pars['Winter_month_Start'].iloc[0]:
-                                dchange = richter_pars['b_Summer'].iloc[0] * (pcp ** richter_pars['epsilon_Summer'].iloc[0])
-                            else:
-                                dchange = richter_pars['b_Winter'].iloc[0] * (pcp ** richter_pars['epsilon_Winter'].iloc[0])
+                        # Prepare DataFrames in the format expected by apply_richter_correction
+                        pcp_input = pd.DataFrame({
+                            'date': station_pcp[date_col].values,
+                            'precipitation_height': station_pcp[value_col].values
+                        })
+                        temp_input = pd.DataFrame({
+                            'date': station_temp[date_col].values,
+                            'temperature': station_temp[value_col].values
+                        })
                         
-                        max_change = richter_pars['maximum_changes'].iloc[0] * pcp
-                        if dchange > max_change:
-                            dchange = max_change
+                        # Apply Richter correction using the imported function
+                        corrected_pcp = apply_richter_correction(pcp_input, temp_input, richter_pars)
                         
-                        corrected_pcp = round(pcp + dchange, 2)
-                        corrected_values.append(corrected_pcp)
+                        # Rebuild the station DataFrame with corrected values
+                        station_pcp[value_col] = corrected_pcp['precipitation_height'].values
+                        corrected_dfs.append(station_pcp)
                     
-                    # Update precipitation values in values_pd
-                    corrected_df = pd.DataFrame({
-                        station_col: merged[station_col].values,
-                        date_col: merged[date_col].values,
-                        value_col: corrected_values
-                    })
-                    
-                    # Remove old precipitation values and add corrected ones
-                    values_pd = values_pd[values_pd[param_col] != 'precipitation_height']
-                    corrected_df[param_col] = 'precipitation_height'
-                    values_pd = pd.concat([values_pd, corrected_df], ignore_index=True)
-                    
-                    print(f"Subbasin {subbasin}: Applied Richter(1995) correction to raw precipitation")
+                    # Combine all corrected station data
+                    if corrected_dfs:
+                        corrected_all = pd.concat(corrected_dfs, ignore_index=True)
+                        
+                        # Remove old precipitation values and add corrected ones
+                        values_pd = values_pd[values_pd[param_col] != 'precipitation_height']
+                        values_pd = pd.concat([values_pd, corrected_all], ignore_index=True)
+                        
+                        print(f"Subbasin {subbasin}: Applied Richter(1995) correction to raw precipitation")
                 except Exception as e:
                     print(f"Subbasin {subbasin}: Error applying Richter correction: {e}")
         else:
